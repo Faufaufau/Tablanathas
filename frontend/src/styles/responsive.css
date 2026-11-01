@@ -1,0 +1,225 @@
+/* Adaptations responsive : regroupées ici pour retrouver facilement les seuils. */
+@media (max-width: 1000px) {
+  .page {
+    padding: 28px 20px 48px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .history-capture-grid,
+  .scenario-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .history-run-list,
+  .scenario-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .history-run-list h3 {
+    grid-column: 1 / -1;
+  }
+
+  .detail-stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .anathas-snapshot-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .history-grid {
+    grid-template-columns: 1fr;
+    padding: 0 16px 16px;
+  }
+
+}
+
+@media (max-width: 700px) {
+  .app-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .app-header .header-actions {
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    flex-direction: row;
+  }
+
+  .app-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-nav__item {
+    justify-content: flex-start;
+  }
+
+  .page-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .form-grid--two,
+  .form-grid--three,
+  .scenario-list,
+  .history-run-list,
+  .snapshot-history-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-right: var(--content-gutter-mobile);
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .history-capture-grid,
+  .scenario-layout {
+    padding-right: var(--content-gutter-mobile);
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .detail-heading-row {
+    padding-right: var(--content-gutter-mobile);
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .day-assumptions {
+    margin-right: var(--content-gutter-mobile);
+    margin-left: var(--content-gutter-mobile);
+  }
+
+  .form-grid,
+  .form-actions,
+  .admin-user-list {
+    padding-right: var(--content-gutter-mobile);
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .parameter-group > legend {
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .config-parameter-section__title {
+    padding-right: var(--content-gutter-mobile);
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .parameter-group .form-grid {
+    padding-right: var(--content-gutter-mobile);
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .parameter-group > .field-note,
+  .config-zone-summary {
+    padding-right: var(--content-gutter-mobile);
+    padding-left: var(--content-gutter-mobile);
+  }
+
+  .pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pagination__controls {
+    justify-content: flex-start;
+  }
+
+  .app-footer {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .form-actions--spread {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-user-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .admin-user-row .danger-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .turn-badge--select {
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .economic-scenario-list__header,
+  .economic-scenario-value {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ranking-tabs {
+    padding: 0 16px 16px;
+  }
+
+  .ranking-tab {
+    flex: 1 1 auto;
+    font-size: 0.8rem;
+  }
+
+  .auth-card {
+    padding: 28px 22px;
+  }
+
+  .header-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .anathas-message {
+    margin: 16px;
+  }
+
+  .anathas-table th,
+  .anathas-table td {
+    padding: 12px 14px;
+  }
+
+}
+
+@media (max-width: 560px) {
+  .anathas-snapshot-summary {
+    grid-template-columns: 1fr;
+    margin: 16px;
+  }
+
+  .anathas-run-history {
+    margin: 0 16px 18px;
+  }
+}

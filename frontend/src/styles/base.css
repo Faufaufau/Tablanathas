@@ -1,0 +1,56 @@
+/* Socle global et éléments HTML. */
+:root {
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--color-text);
+  background: var(--color-page);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(ellipse at top left, var(--color-page-glow) 0, transparent 38%),
+    var(--color-page);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+h1,
+h2,
+.stat-card__value {
+  font-family: var(--font-heading);
+}
+
+h1 {
+  margin: 8px 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.eyebrow {
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.subtitle,
+.panel-header p {
+  margin: 0;
+  color: var(--color-text-soft);
+}

@@ -1,0 +1,56 @@
+/* Design tokens : couleurs, typographie, espacements et arrondis. */
+:root {
+  /* Typographie */
+  --font-body: 'DM Sans', sans-serif;
+  --font-heading: 'Space Grotesk', sans-serif;
+
+  /* Fonds */
+  --color-page: #0b1020;
+  --color-page-glow: #1a2750;
+  --color-panel: rgba(20, 28, 48, 0.92);
+  --color-panel-strong: rgba(20, 28, 48, 0.96);
+  --color-surface: #151e33;
+  --color-surface-raised: #121b2e;
+  --color-surface-input: #0f172a;
+  --color-surface-code: #090e19;
+
+  /* Bordures */
+  --color-border: #293550;
+  --color-border-soft: #2b3a56;
+  --color-border-input: #34415f;
+  --color-border-accent: #718fda;
+
+  /* Textes */
+  --color-text: #e8edf7;
+  --color-text-strong: #ffffff;
+  --color-text-body: #d7deed;
+  --color-text-muted: #aab5ce;
+  --color-text-soft: #98a5c1;
+  --color-text-subtle: #8392b1;
+  --color-text-faint: #7484a3;
+
+  /* Accent bleu */
+  --color-accent: #8da8ff;
+  --color-accent-strong: #a8bcff;
+  --color-accent-light: #b5c7ff;
+  --color-accent-pale: #b9ccff;
+  --color-accent-background: #202c4b;
+  --color-accent-border: #3f5a8e;
+
+  /* États */
+  --color-success: #8ee4b8;
+  --color-success-soft: #a5ebc6;
+  --color-danger: #ffb8bd;
+  --color-danger-strong: #ff9999;
+  --color-warning: #ffd08a;
+
+  /* Mise en page */
+  --page-max-width: 1500px;
+  --content-gutter: 24px;
+  --content-gutter-mobile: 16px;
+
+  /* Arrondis */
+  --radius-small: 7px;
+  --radius-medium: 10px;
+  --radius-large: 16px;
+}

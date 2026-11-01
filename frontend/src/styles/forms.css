@@ -1,0 +1,225 @@
+/* Formulaires, champs et éditeur de scénarios. */
+.form-grid {
+  display: grid;
+  gap: 14px;
+  padding: 0 var(--content-gutter);
+}
+
+.form-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  color: #cbd4e8;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.form-field input,
+.form-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 10px 12px;
+  color: #edf2ff;
+  background: var(--color-surface-input);
+  border: 1px solid var(--color-border-input);
+  border-radius: 9px;
+  outline: none;
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(141, 168, 255, 0.12);
+}
+
+.form-field small {
+  color: #8494b3;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 16px var(--content-gutter) 0;
+}
+
+.form-actions--spread {
+  justify-content: space-between;
+}
+
+.form-actions__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+/* Titres de sous-sections de la page Configuration. */
+.config-parameter-section__title {
+  margin: 20px 0 9px;
+  padding: 0 var(--content-gutter);
+  color: var(--color-accent-pale);
+  font-family: var(--font-heading);
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+/* Répartition de population et paramètres propres aux scénarios. */
+.scenario-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 290px) minmax(0, 1fr);
+  gap: 22px;
+  padding: 0 var(--content-gutter);
+}
+
+.scenario-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  min-width: 0;
+}
+
+.scenario-list__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 13px 14px;
+  color: #c5d0e5;
+  text-align: left;
+  background: var(--color-surface-raised);
+  border: 1px solid #2b3a57;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.scenario-list__item:hover {
+  background: #1b2943;
+}
+
+.scenario-list__item.active {
+  background: #202f50;
+  border-color: #526fa8;
+  box-shadow: inset 3px 0 var(--color-accent);
+}
+
+.scenario-list__name {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.scenario-list__item small {
+  color: #8e9fbc;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.scenario-default {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #a9c3ff;
+  font-size: 0.74rem;
+}
+
+.scenario-editor {
+  min-width: 0;
+  padding: 17px 0 18px;
+  background: rgba(10, 17, 31, 0.32);
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+}
+
+.scenario-editor > .form-grid {
+  padding-bottom: 18px;
+}
+
+.parameter-group {
+  margin: 8px 0 12px;
+  padding: 16px 0 18px;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.parameter-group > legend {
+  max-width: 100%;
+  margin: 0;
+  padding: 0 var(--content-gutter);
+  color: #c8d6f2;
+  font-size: 0.91rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.parameter-group > .field-note {
+  margin: 10px 0;
+  padding: 0 var(--content-gutter);
+  line-height: 1.5;
+}
+
+.config-zone-summary {
+  margin: 12px 0 18px;
+  padding: 0 var(--content-gutter);
+  line-height: 1.5;
+}
+
+.parameter-group .form-grid {
+  padding-top: 8px;
+}
+
+.admin-create-form {
+  padding: 0 0 18px;
+}
+
+.password-settings-panel form {
+  padding-bottom: 18px;
+}
+
+/* Cases à cocher utilisées pour les hypothèses booléennes. */
+.form-field--checkbox {
+  justify-content: flex-start;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 42px;
+  padding: 10px 12px;
+  color: #e0e8fa;
+  background: var(--color-surface-input);
+  border: 1px solid var(--color-border-input);
+  border-radius: 9px;
+}
+
+.checkbox-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.checkbox-row strong {
+  font-size: 0.85rem;
+  font-weight: 650;
+}

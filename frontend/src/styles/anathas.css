@@ -1,0 +1,196 @@
+/* Captures automatiques et données historisées provenant d'Anathas. */
+.anathas-panel {
+  margin-top: 28px;
+}
+
+.anathas-snapshot-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px var(--content-gutter);
+}
+
+.anathas-snapshot-summary > div {
+  min-width: 0;
+  padding: 14px 16px;
+  background: rgba(19, 29, 49, 0.72);
+  border: 1px solid #2b3b59;
+  border-radius: 11px;
+}
+
+.anathas-snapshot-summary span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: #8f9fbd;
+  font-size: 0.76rem;
+}
+
+.anathas-snapshot-summary strong {
+  display: block;
+  color: #e0e8fa;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+
+.anathas-message {
+  margin: 18px var(--content-gutter);
+  color: #aebbd2;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.anathas-message:has(svg) {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.anathas-message--error {
+  color: var(--color-danger);
+}
+
+.anathas-storage-caption {
+  margin: 6px 0 0;
+  color: #8f9fbd;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.anathas-table-wrap {
+  overflow-x: auto;
+}
+
+.anathas-storage-table {
+  min-width: 1100px;
+}
+
+.anathas-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.anathas-table th,
+.anathas-table td {
+  padding: 13px 20px;
+  text-align: left;
+  border-top: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.anathas-table th {
+  color: #93a2c1;
+  background: rgba(17, 24, 42, 0.6);
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.anathas-table td {
+  color: var(--color-text-body);
+  font-size: 0.9rem;
+}
+
+.anathas-table tbody tr:hover {
+  background: rgba(38, 53, 83, 0.35);
+}
+
+.anathas-table code {
+  color: var(--color-accent-pale);
+  font-size: 0.86rem;
+}
+
+.anathas-country-name {
+  font-weight: 600;
+}
+
+.anathas-country-name strong,
+.anathas-country-name small {
+  display: block;
+}
+
+.anathas-country-name small {
+  margin-top: 4px;
+  color: #8294b5;
+  font-size: 0.76rem;
+  font-weight: 400;
+}
+
+.anathas-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 28px;
+  padding: 3px 8px;
+  color: #c8d5ff;
+  background: #202e4d;
+  border-radius: 8px;
+}
+
+.anathas-status {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.anathas-status--completed {
+  color: var(--color-success);
+  background: rgba(36, 116, 82, 0.18);
+}
+
+.anathas-status--partial {
+  color: var(--color-warning);
+  background: rgba(166, 111, 31, 0.18);
+}
+
+.anathas-status--failed {
+  color: var(--color-danger);
+  background: rgba(159, 48, 58, 0.18);
+}
+
+.anathas-status--running {
+  color: var(--color-accent-pale);
+  background: rgba(69, 95, 153, 0.2);
+}
+
+.anathas-raw-details {
+  margin-top: 14px;
+  color: var(--color-accent-strong);
+}
+
+.anathas-raw-details summary {
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.anathas-run-history {
+  margin: 0 var(--content-gutter) 24px;
+}
+
+.anathas-json {
+  max-height: 420px;
+  overflow: auto;
+  margin: 14px 0 0;
+  padding: 14px;
+  color: #c5d2e8;
+  background: var(--color-surface-code);
+  border: 1px solid #263551;
+  border-radius: 9px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.spin {
+  animation: anathas-spin 1s linear infinite;
+}
+
+@keyframes anathas-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

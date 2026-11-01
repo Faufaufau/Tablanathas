@@ -1,0 +1,121 @@
+/* Écran de connexion et actions de session. */
+.auth-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  padding: 36px;
+  background: var(--color-panel-strong);
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+}
+
+.auth-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 24px;
+  color: var(--color-accent-light);
+  background: var(--color-accent-background);
+  border: 1px solid #34466f;
+  border-radius: 15px;
+}
+
+.auth-card .eyebrow {
+  margin-bottom: 8px;
+}
+
+.auth-card h1 {
+  margin: 0 0 8px;
+}
+
+.auth-description {
+  margin: 0 0 28px;
+  color: var(--color-text-soft);
+  line-height: 1.6;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form label {
+  margin-top: 8px;
+  color: #cbd4e8;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.auth-form input {
+  width: 100%;
+  padding: 12px 14px;
+  color: var(--color-text);
+  background: var(--color-surface-input);
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-medium);
+  outline: none;
+}
+
+.auth-form input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(141, 168, 255, 0.12);
+}
+
+.auth-submit,
+.logout-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 12px 16px;
+  color: var(--color-text-strong);
+  background: #405b9b;
+  border: 1px solid var(--color-border-accent);
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+  font-weight: 700;
+  transition: background 0.2s ease;
+}
+
+.auth-submit {
+  margin-top: 14px;
+}
+
+.auth-submit:hover,
+.logout-button:hover {
+  background: #506fb5;
+}
+
+.auth-submit:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.auth-error,
+.auth-global-error {
+  color: var(--color-danger-strong);
+  line-height: 1.5;
+}
+
+.auth-loading {
+  color: var(--color-text-muted);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logout-button {
+  background: var(--color-surface);
+  border-color: var(--color-border-input);
+  white-space: nowrap;
+}

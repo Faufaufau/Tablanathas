@@ -1,0 +1,244 @@
+/* Composants partagés : panneaux, badges, tableaux et messages. */
+.panel,
+.stat-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-large);
+}
+
+.panel {
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: var(--content-gutter);
+}
+
+.panel-header h2 {
+  margin: 0 0 6px;
+}
+
+.turn-badge {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: #171f35;
+  border: 1px solid #2b3858;
+  border-radius: 14px;
+}
+
+.turn-badge span {
+  color: var(--color-text-muted);
+}
+
+.turn-badge strong {
+  color: var(--color-accent-strong);
+  font-size: 1.8rem;
+}
+
+.player-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-background);
+  border-radius: 9px;
+  white-space: nowrap;
+}
+
+.notice {
+  margin: 0;
+  padding: 12px 15px;
+  border: 1px solid;
+  border-radius: var(--radius-medium);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.notice--error {
+  color: #ffc0c5;
+  background: rgba(107, 35, 47, 0.22);
+  border-color: #743e4b;
+}
+
+.notice--success {
+  color: var(--color-success-soft);
+  background: rgba(25, 103, 70, 0.16);
+  border-color: #2a684f;
+}
+
+/* Boutons réutilisés dans plusieurs pages. */
+.primary-button,
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 40px;
+  padding: 9px 13px;
+  border-radius: var(--radius-medium);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.primary-button {
+  color: var(--color-text-strong);
+  background: #35528c;
+  border: 1px solid #6687cf;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: #4265a9;
+}
+
+.secondary-button {
+  color: #dce5fa;
+  background: #17233c;
+  border: 1px solid #344766;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: #233554;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.player-link {
+  padding: 0;
+  color: #b7c9ff;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.player-link:hover {
+  color: var(--color-text-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.player-link:disabled {
+  color: inherit;
+  cursor: default;
+  text-decoration: none;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+.pagination__count {
+  color: #8d9dbb;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.pagination__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.pagination__controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 9px;
+  color: #aab8d3;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-input);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.pagination__controls button:hover:not(:disabled) {
+  color: var(--color-text-strong);
+  background: #26395d;
+}
+
+.pagination__controls button.is-current {
+  color: var(--color-text-strong);
+  background: #35528c;
+  border-color: #6687cf;
+}
+
+.pagination__controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 9px 13px;
+  color: var(--color-danger);
+  background: rgba(104, 33, 46, 0.18);
+  border: 1px solid #783d50;
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: rgba(145, 45, 62, 0.3);
+}
+
+.danger-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.field-note {
+  color: #8494b3;
+  font-size: 0.8rem;
+}
+
+.field-note--error {
+  color: #f08a8a;
+  font-weight: 600;
+}
+
+.historical-view-notice {
+  margin-bottom: 0;
+  color: #c5d5ff;
+  background: rgba(38, 59, 99, 0.22);
+  border-color: #435f98;
+}

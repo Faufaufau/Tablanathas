@@ -1,0 +1,17 @@
+/*
+ * Feuille d'entrée des styles de Tablanathas.
+ * Les règles sont séparées par responsabilité dans ./styles/.
+ */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@import './styles/tokens.css';
+@import './styles/base.css';
+@import './styles/layout.css';
+@import './styles/components.css';
+@import './styles/dashboard.css';
+@import './styles/authentication.css';
+@import './styles/anathas.css';
+@import './styles/forms.css';
+@import './styles/player-details.css';
+@import './styles/admin.css';
+@import './styles/responsive.css';
