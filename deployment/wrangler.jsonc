@@ -6,9 +6,6 @@
   "compatibility_flags": ["nodejs_compat", "nodejs_als"],
   "workers_dev": true,
   "upload_source_maps": true,
-  "limits": {
-    "cpu_ms": 30000
-  },
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",
@@ -18,7 +15,7 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "REPLACE_WITH_HYPERDRIVE_ID"
+      "id": "741b07852e10454fb9c9c028b72ebc93"
     }
   ],
   "ratelimits": [
@@ -35,11 +32,12 @@
     "crons": ["*/5 * * * *"]
   },
   "vars": {
-    "WEB_ORIGIN": "https://REPLACE_WITH_YOUR_DOMAIN",
+    "WEB_ORIGIN": "https://tablanathas.flosnihil.workers.dev",
     "ANATHAS_API_BASE_URL": "https://www.anathas.com/api/v2",
     "ANATHAS_TIMEZONE": "Europe/Paris",
     "ANATHAS_SNAPSHOT_POLL_MS": "30000",
     "ANATHAS_DEFAULT_AGRICULTURAL_ZONES": "0",
-    "ANATHAS_DEFAULT_HABITABLE_ZONES": "0"
+    "ANATHAS_DEFAULT_HABITABLE_ZONES": "0",
+    "PASSWORD_SERVICE_URL": "https://br-jolly-snow-b95dnsan-password.compute.c-7.eu-central-1.aws.neon.tech"
   }
 }

@@ -12,7 +12,17 @@ const loginLimiter = rateLimit({
   limit: 10,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "Trop de tentatives de connexion. Réessaie dans 15 minutes." },
+  message: {
+    error: "Trop de tentatives de connexion. Réessaie dans 15 minutes.",
+  },
+  keyGenerator: (req) => {
+    const ip =
+      req.get("cf-connecting-ip") ??
+      req.ip ??
+      req.socket.remoteAddress;
+
+    return ip ?? "local-development";
+  },
 });
 
 const loginSchema = z.object({

@@ -281,7 +281,7 @@ export default function ConfigPage() {
     </section>
 
     <section className="panel page-panel">
-      <div className="panel-header page-panel-header"><div><p className="eyebrow">MODÈLES ÉCONOMIQUES</p><h2>Scénarios économiques</h2><p>{formatNumber(config.scenarios.length)}/{formatNumber(config.max_scenarios)} scénarios personnels.</p></div><button className="primary-button" type="button" disabled={busy || config.scenarios.length >= config.max_scenarios} onClick={createScenario}><Plus size={16} /> Nouveau scénario</button></div>
+      <div className="panel-header page-panel-header"><div><p className="eyebrow">MODÈLES ÉCONOMIQUES</p><h2>Scénarios économiques</h2><p>{formatNumber(config.scenarios.length)}/{formatNumber(config.max_scenarios)} scénarios personnels.</p></div><button className="primary-button" type="button" disabled={busy || config.scenarios.length >= config.max_scenarios} onClick={createScenario}><Plus size={16} /> Nouveau groupe de scénarios</button></div>
       <div className="scenario-layout">
         <aside className="scenario-list" aria-label="Scénarios enregistrés">
           {config.scenarios.map((scenario) => <button key={String(scenario.scenario_id)} type="button" className={`scenario-list__item ${selectedId === String(scenario.scenario_id) ? 'active' : ''}`} onClick={() => { setSelectedId(String(scenario.scenario_id)); setDraft(cloneScenario(scenario)); setError(null); setSuccess(null) }}>
@@ -290,7 +290,7 @@ export default function ConfigPage() {
         </aside>
         {draft ? <div className="scenario-editor">
           <div className="form-grid form-grid--two">
-            <label className="form-field"><span>Nom du scénario</span><input maxLength={80} value={draft.scenario_name} onChange={(e) => setDraft({ ...draft, scenario_name: e.target.value })} /></label>
+            <label className="form-field"><span>Nom du groupe de scénarios</span><input maxLength={80} value={draft.scenario_name} onChange={(e) => setDraft({ ...draft, scenario_name: e.target.value })} /></label>
             <label className="form-field"><span>Description</span><input maxLength={500} value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label>
           </div>
           <fieldset className="parameter-group">

@@ -1,4 +1,4 @@
-import { httpServerHandler } from "cloudflare:node";
+import { handleAsNodeRequest } from "cloudflare:node";
 import process from "node:process";
 
 type HyperdriveBinding = { connectionString: string };
@@ -18,6 +18,8 @@ interface CloudflareEnv {
   ANATHAS_DEFAULT_AGRICULTURAL_ZONES?: string;
   ANATHAS_DEFAULT_HABITABLE_ZONES?: string;
   ANATHAS_GAME_ID?: string;
+  PASSWORD_SERVICE_URL?: string;
+  PASSWORD_SERVICE_TOKEN?: string;
 }
 
 interface WorkerExecutionContext {
@@ -29,19 +31,24 @@ interface WorkerScheduledController {
   scheduledTime: number;
 }
 
-let apiHandlerPromise: Promise<ReturnType<typeof httpServerHandler>> | null = null;
+// Express est initialisé une seule fois par instance Worker. Les valeurs de
+// process.env doivent être posées avant l'import dynamique de app.ts/config.ts.
+let apiServerPromise: Promise<void> | null = null;
+const API_PORT = 8787;
 
 function applyWorkerEnvironment(env: CloudflareEnv): void {
   // Les modules historiques lisent leur configuration via process.env.
   // Les valeurs Cloudflare sont injectées avant leur import dynamique.
   // Wrangler définit NODE_ENV automatiquement : development avec wrangler dev,
   // production avec wrangler deploy. Ne pas le modifier depuis les bindings.
-  process.env.PORT = "8787";
+  process.env.PORT = String(API_PORT);
   process.env.DATABASE_URL = env.HYPERDRIVE.connectionString;
   process.env.PG_POOL_MAX = "5";
   process.env.WORKER_RUNTIME = "cloudflare";
   process.env.SESSION_SECRET = env.SESSION_SECRET;
   process.env.WEB_ORIGIN = env.WEB_ORIGIN;
+  process.env.PASSWORD_SERVICE_URL = env.PASSWORD_SERVICE_URL ?? "";
+  process.env.PASSWORD_SERVICE_TOKEN = env.PASSWORD_SERVICE_TOKEN ?? "";
   process.env.ANATHAS_API_KEY = env.ANATHAS_API_KEY ?? "";
   process.env.ANATHAS_API_BASE_URL = env.ANATHAS_API_BASE_URL ?? "https://www.anathas.com/api/v2";
   process.env.ANATHAS_TIMEZONE = env.ANATHAS_TIMEZONE ?? "Europe/Paris";
@@ -52,27 +59,28 @@ function applyWorkerEnvironment(env: CloudflareEnv): void {
   else delete process.env.ANATHAS_GAME_ID;
 }
 
-async function createApiHandler(env: CloudflareEnv): Promise<ReturnType<typeof httpServerHandler>> {
+async function startApiServer(env: CloudflareEnv): Promise<void> {
   applyWorkerEnvironment(env);
   const { app } = await import("./app.js");
-  app.listen(8787);
-  return httpServerHandler({ port: 8787 });
+  app.listen(API_PORT);
 }
 
-async function getApiHandler(env: CloudflareEnv): Promise<ReturnType<typeof httpServerHandler>> {
-  if (!apiHandlerPromise) {
-    apiHandlerPromise = createApiHandler(env);
+async function ensureApiServer(env: CloudflareEnv): Promise<void> {
+  if (!apiServerPromise) {
+    apiServerPromise = startApiServer(env);
   }
+
   try {
-    return await apiHandlerPromise;
+    await apiServerPromise;
   } catch (error) {
-    apiHandlerPromise = null;
+    // Autorise une nouvelle tentative si l'initialisation du serveur échoue.
+    apiServerPromise = null;
     throw error;
   }
 }
 
 export default {
-  async fetch(request: Request, env: CloudflareEnv, ctx: WorkerExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: CloudflareEnv, _ctx: WorkerExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const isApiRequest = url.pathname === "/api" || url.pathname.startsWith("/api/");
     if (!isApiRequest) return env.ASSETS.fetch(request);
@@ -96,9 +104,12 @@ export default {
       }
     }
 
-    const handler = await getApiHandler(env);
+    await ensureApiServer(env);
     const { withFreshPool } = await import("./db.js");
-    return withFreshPool(() => handler(request, env, ctx));
+
+    // API Cloudflare directe et documentée : elle route la requête Worker
+    // vers le serveur Node/Express qui écoute sur API_PORT.
+    return withFreshPool(() => handleAsNodeRequest(API_PORT, request));
   },
 
   async scheduled(_controller: WorkerScheduledController, env: CloudflareEnv, _ctx: WorkerExecutionContext): Promise<void> {

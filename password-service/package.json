@@ -1,0 +1,17 @@
+{
+  "name": "tablanathas-neon-password-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@neon/config": "^1.10.0",
+    "@neon/env": "^1.6.8",
+    "hash-wasm": "4.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  }
+}

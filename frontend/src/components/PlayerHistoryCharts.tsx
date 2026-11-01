@@ -91,7 +91,11 @@ function HistoryChart({
             />
             <Tooltip
               contentStyle={{ background: '#141c30', border: '1px solid #34415f' }}
-              labelFormatter={(v) => `C${formatNumber(v)}`}
+              labelFormatter={(v) =>
+  `C${formatNumber(
+    typeof v === "string" || typeof v === "number" ? v : null
+  )}`
+}
               formatter={(v, name) => [v === null || v === undefined ? '—' : valueFormatter ? valueFormatter(Number(v)) : formatValue(v, 3), name]}
             />
             {series.map((item) => (
