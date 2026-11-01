@@ -1,5 +1,5 @@
 import { Router } from "express";
-import argon2 from "argon2";
+import { hashPassword, verifyPassword } from "../security/password.js";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 import * as authRepository from "../repositories/auth.repository.js";
@@ -29,7 +29,7 @@ authRouter.post("/login", loginLimiter, async (req, res, next) => {
 
     const user = await authRepository.findUserForLogin(parsed.data.username);
     // Réponse volontairement identique si le compte n'existe pas ou si le mot de passe est faux.
-    const valid = user ? await argon2.verify(user.password_hash, parsed.data.password).catch(() => false) : false;
+    const valid = user ? await verifyPassword(user.password_hash, parsed.data.password) : false;
     if (!user || !valid) {
       return res.status(401).json({ error: "Identifiant ou mot de passe invalide." });
     }
@@ -81,9 +81,9 @@ authRouter.put("/password", requireAuth, async (req, res, next) => {
     }
     const account = await authRepository.findUserForPasswordChange(req.session.userId!);
     if (!account) return res.status(401).json({ error: "Session invalide." });
-    const valid = await argon2.verify(account.password_hash, parsed.data.current_password).catch(() => false);
+    const valid = await verifyPassword(account.password_hash, parsed.data.current_password);
     if (!valid) return res.status(400).json({ error: "Le mot de passe actuel est incorrect." });
-    const passwordHash = await argon2.hash(parsed.data.new_password, { type: argon2.argon2id });
+    const passwordHash = await hashPassword(parsed.data.new_password);
     await authRepository.updatePasswordHash(account.user_id, passwordHash);
     return res.json({ changed: true });
   } catch (error) {

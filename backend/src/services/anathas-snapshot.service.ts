@@ -34,7 +34,6 @@ const TIME_SLOTS: Array<{ time: string; phase: ScheduleSlot["phase"] }> = [
   { time: "18:00", phase: "end" },
   { time: "20:05", phase: "start" },
 ];
-const ADVISORY_LOCK_KEY = "tablanathas:anathas:scheduled-snapshot";
 const RETRY_DELAY_MS = 5 * 60 * 1000;
 const MAX_DETAIL_ATTEMPTS = 3;
 const DETAIL_CONCURRENCY = 4;
@@ -514,35 +513,32 @@ async function upsertPlayerTurnState(
 
 export async function runAnathasSnapshot(slot: ScheduleSlot): Promise<void> {
   const client = await pool.connect();
-  let lockAcquired = false;
   let runId: string | null = null;
   try {
-    const lock = await client.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, [ADVISORY_LOCK_KEY]);
-    lockAcquired = Boolean(lock.rows[0]?.locked);
-    if (!lockAcquired) return;
-
-    const existing = await client.query<{
-      snapshot_id: string; status: string; game_turn: number | null; retry_after: Date | null;
-    }>(`SELECT snapshot_id, status, game_turn, retry_after FROM public.anathas_snapshot_runs WHERE schedule_key = $1`, [slot.key]);
-    if (existing.rows[0]?.status === "completed") return;
-    if (existing.rows[0]?.retry_after && new Date(existing.rows[0].retry_after).getTime() > Date.now()) return;
-
-    if (existing.rows[0]) {
-      runId = existing.rows[0].snapshot_id;
-      await client.query(
-        `UPDATE public.anathas_snapshot_runs SET status = 'running', attempt_count = attempt_count + 1,
-          started_at = now(), completed_at = NULL, error_message = NULL, retry_after = NULL,
-          updated_at = now() WHERE snapshot_id = $1`,
-        [runId],
-      );
-    } else {
-      const inserted = await client.query<{ snapshot_id: string }>(
-        `INSERT INTO public.anathas_snapshot_runs(schedule_key, scheduled_local_at, scheduled_for, snapshot_phase, status)
-         VALUES ($1, $2, $3, $4, 'running') RETURNING snapshot_id`,
-        [slot.key, slot.localAt, slot.scheduledFor, slot.phase],
-      );
-      runId = inserted.rows[0].snapshot_id;
-    }
+    // Réservation atomique du créneau grâce à schedule_key UNIQUE. Hyperdrive
+    // fonctionne en pooling transactionnel et ne prend pas en charge les
+    // advisory locks PostgreSQL ; une ligne unique évite les doubles captures.
+    const reservation = await client.query<{ snapshot_id: string }>(
+      `INSERT INTO public.anathas_snapshot_runs
+         (schedule_key, scheduled_local_at, scheduled_for, snapshot_phase, status)
+       VALUES ($1, $2, $3, $4, 'running')
+       ON CONFLICT (schedule_key) DO UPDATE SET
+         status = 'running',
+         attempt_count = public.anathas_snapshot_runs.attempt_count + 1,
+         started_at = now(), completed_at = NULL, error_message = NULL,
+         retry_after = NULL, updated_at = now()
+       WHERE public.anathas_snapshot_runs.status <> 'completed'
+         AND (public.anathas_snapshot_runs.status <> 'running'
+              OR public.anathas_snapshot_runs.started_at < now() - interval '15 minutes')
+         AND (public.anathas_snapshot_runs.retry_after IS NULL
+              OR public.anathas_snapshot_runs.retry_after <= now())
+       RETURNING snapshot_id`,
+      [slot.key, slot.localAt, slot.scheduledFor, slot.phase],
+    );
+    // Aucune ligne retournée signifie que le créneau est déjà terminé,
+    // qu'une autre invocation le traite, ou que le délai de reprise n'est pas écoulé.
+    if (!reservation.rows[0]) return;
+    runId = reservation.rows[0].snapshot_id;
 
     console.info(`[Anathas snapshots] Capture ${slot.localAt} : récupération du classement et des fiches.`);
     let capture: Awaited<ReturnType<typeof captureAllCountries>>;
@@ -630,13 +626,6 @@ export async function runAnathasSnapshot(slot: ScheduleSlot): Promise<void> {
     }
     console.error(`[Anathas snapshots] Erreur pendant la capture ${slot.key}.`, error);
   } finally {
-    if (lockAcquired) {
-      try {
-        await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, [ADVISORY_LOCK_KEY]);
-      } catch (error) {
-        console.error("Impossible de libérer le verrou de capture Anathas.", error);
-      }
-    }
     client.release();
   }
 }

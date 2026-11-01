@@ -1,0 +1,8 @@
+# Copie ce fichier sous deployment/.dev.vars pour le développement local Workers.
+WEB_ORIGIN=http://localhost:8787
+SESSION_SECRET=REMPLACER_PAR_UN_SECRET_ALEATOIRE_DE_32_CARACTERES_MINIMUM
+ANATHAS_API_KEY=REMPLACER_PAR_VOTRE_CLE_API_ANATHAS
+
+# Connexion PostgreSQL directe utilisée uniquement par `wrangler dev` local.
+# Définis-la dans le terminal (PowerShell/bash), pas comme secret de production.
+# CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=postgresql://USER:PASSWORD@localhost:5432/Tablanathas

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import argon2 from "argon2";
+import { hashPassword } from "../security/password.js";
 import { z } from "zod";
 import { pool, query } from "../db.js";
 import { requireAuth } from "../middleware/require-auth.js";
@@ -33,7 +33,7 @@ adminRouter.post("/users", async (req, res, next) => {
     }
     const username = parsed.data.username.trim();
     const email = parsed.data.email?.trim() || null;
-    const passwordHash = await argon2.hash(parsed.data.password, { type: argon2.argon2id });
+    const passwordHash = await hashPassword(parsed.data.password);
     const rows = await query(
       `INSERT INTO public.app_users (username, email, password_hash, role)
        VALUES ($1, $2, $3, CASE WHEN lower($1) = 'admin' THEN 'admin' ELSE 'user' END)

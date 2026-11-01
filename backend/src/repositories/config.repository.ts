@@ -59,12 +59,15 @@ async function resolveGameId(client: PoolClient, preferredGameId?: string): Prom
 async function ensureUserContext(client: PoolClient, userId: string, preferredGameId?: string) {
   const gameId = await resolveGameId(client, preferredGameId);
   await client.query(
-    `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
-    [userId, gameId],
-  );
-  await client.query(
     `INSERT INTO public.user_game_settings (user_id, game_id)
      VALUES ($1, $2) ON CONFLICT (user_id, game_id) DO NOTHING`,
+    [userId, gameId],
+  );
+  // Verrouille la ligne de réglages de cette partie pour sérialiser la création
+  // du scénario par défaut et le respect de la limite de 20 scénarios.
+  await client.query(
+    `SELECT 1 FROM public.user_game_settings
+     WHERE user_id = $1 AND game_id = $2 FOR UPDATE`,
     [userId, gameId],
   );
 
@@ -210,11 +213,6 @@ export async function createScenario(
   try {
     await client.query("BEGIN");
     const gameId = await ensureUserContext(client, userId);
-    // Force a consistent per-user/per-game creation order even on concurrent requests.
-    await client.query(
-      `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
-      [userId, gameId],
-    );
     const countResult = await client.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM public.user_scenarios WHERE user_id = $1 AND game_id = $2`,
       [userId, gameId],

@@ -1,4 +1,5 @@
--- Tablanathas : initialisation complète du schéma pour UNE BASE NEUVE.
+-- Tablanathas : initialisation complète du schéma PostgreSQL pour UNE BASE NEUVE.
+-- Compatible avec Cloudflare Workers via Hyperdrive ; ce script n’est PAS une migration D1/SQLite.
 -- Source : schéma de base existant + migrations de l'application actuelle.
 --
 -- IMPORTANT : ce script refuse de s'exécuter si des tables métier existent déjà.
@@ -1346,8 +1347,8 @@ CREATE TABLE IF NOT EXISTS public.user_game_settings (
 CREATE INDEX IF NOT EXISTS idx_user_game_settings_game
     ON public.user_game_settings(game_id, user_id);
 
--- Un verrou transactionnel par utilisateur/partie protège la limite de 20 scénarios
--- même si deux requêtes de création arrivent simultanément.
+-- Verrou transactionnel sur la ligne de réglages utilisateur/partie.
+-- Compatible avec les poolers transactionnels (ex. Cloudflare Hyperdrive).
 CREATE OR REPLACE FUNCTION public.enforce_user_scenario_limit()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1355,7 +1356,14 @@ AS $$
 DECLARE
     scenario_count integer;
 BEGIN
-    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.user_id::text || ':' || NEW.game_id::text, 0));
+    INSERT INTO public.user_game_settings (user_id, game_id)
+    VALUES (NEW.user_id, NEW.game_id)
+    ON CONFLICT (user_id, game_id) DO NOTHING;
+
+    PERFORM 1 FROM public.user_game_settings
+    WHERE user_id = NEW.user_id AND game_id = NEW.game_id
+    FOR UPDATE;
+
     SELECT count(*) INTO scenario_count
     FROM public.user_scenarios
     WHERE user_id = NEW.user_id AND game_id = NEW.game_id;

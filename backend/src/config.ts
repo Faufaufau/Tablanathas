@@ -1,5 +1,3 @@
-import "dotenv/config";
-
 function nonNegativeInteger(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === "") return fallback;

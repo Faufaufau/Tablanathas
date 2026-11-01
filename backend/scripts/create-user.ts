@@ -1,5 +1,6 @@
+import "dotenv/config";
 import { randomBytes } from "node:crypto";
-import argon2 from "argon2";
+import { hashPassword } from "../src/security/password.js";
 import { pool } from "../src/db.js";
 
 function argValue(name: string): string | undefined {
@@ -23,7 +24,7 @@ if (!username) {
 
     // Mot de passe aléatoire généré localement, affiché une seule fois à l'administrateur.
     const password = randomBytes(18).toString("base64url");
-    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    const passwordHash = await hashPassword(password);
     const result = await pool.query(
       `INSERT INTO public.app_users (username, email, password_hash, role)
        VALUES ($1, $2, $3, CASE WHEN lower($1) = 'admin' THEN 'admin' ELSE 'user' END)
