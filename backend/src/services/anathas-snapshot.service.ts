@@ -6,6 +6,7 @@ import {
   ANATHAS_DETAIL_CONCURRENCY,
   getAnathasDetailBatchCount,
 } from "./anathas-batch.js";
+import { getMaxAnathasSeniorityTurn } from "./anathas-turn.js";
 import {
   extractCountryId,
   extractCountryRecords,
@@ -526,18 +527,17 @@ async function assignGameTurn(
     `SELECT game_turn FROM public.anathas_snapshot_runs WHERE snapshot_id = $1 FOR UPDATE`,
     [runId],
   );
-  const storedTurn = priorRun.rows[0]?.game_turn;
+  const storedTurn = priorRun.rows[0]?.game_turn ?? null;
 
   const stateResult = await client.query<{
     current_game_turn: number;
     game_id: string | null;
-    initialized: boolean;
-  }>(`SELECT current_game_turn, game_id, initialized FROM public.anathas_game_state WHERE singleton = true FOR UPDATE`);
+  }>(`SELECT current_game_turn, game_id FROM public.anathas_game_state WHERE singleton = true FOR UPDATE`);
   let state = stateResult.rows[0];
   if (!state) {
     await client.query(`INSERT INTO public.anathas_game_state(singleton) VALUES (true) ON CONFLICT DO NOTHING`);
-    const again = await client.query<{ current_game_turn: number; game_id: string | null; initialized: boolean }>(
-      `SELECT current_game_turn, game_id, initialized FROM public.anathas_game_state WHERE singleton = true FOR UPDATE`,
+    const again = await client.query<{ current_game_turn: number; game_id: string | null }>(
+      `SELECT current_game_turn, game_id FROM public.anathas_game_state WHERE singleton = true FOR UPDATE`,
     );
     state = again.rows[0];
   }
@@ -561,51 +561,39 @@ async function assignGameTurn(
     }
   }
 
-  let turn = storedTurn;
-  let initializedFrom = "";
-  if (turn === null || turn === undefined) {
-    if (!state.initialized) {
-      const localMax = await client.query<{ max_turn: number | null }>(
-        `SELECT MAX(seniority_turns)::integer AS max_turn FROM public.player_turn_state WHERE game_id = $1`,
-        [gameId],
-      );
-      const maxLocalTurn = localMax.rows[0]?.max_turn;
-      const apiSeniority = apiCountries
-        .map((entry) => entry.normalized?.seniorityCycles)
-        .filter((value): value is string => value !== null && value !== undefined && /^\d+$/.test(value))
-        .map((value) => Number(value))
-        .filter(Number.isFinite);
-      const maxApiSeniority = apiSeniority.length ? Math.max(...apiSeniority) : 0;
-      turn = maxLocalTurn !== null && maxLocalTurn !== undefined ? maxLocalTurn : maxApiSeniority;
-      initializedFrom = maxLocalTurn !== null && maxLocalTurn !== undefined
-        ? "MAX(player_turn_state.seniority_turns)"
-        : "MAX(Anathas.seniority_cycles) (repli si la base ne contient aucun tour historique)";
-      await client.query(
-        `UPDATE public.anathas_game_state
-         SET current_game_turn = $1, game_id = $2, initialized = true, initialized_from = $3,
-             last_turn_start_key = CASE WHEN $4 THEN $5 ELSE last_turn_start_key END, updated_at = now()
-         WHERE singleton = true`,
-        [turn, gameId, initializedFrom, isTurnStart(slot), isTurnStart(slot) ? slot.key : null],
-      );
-    } else {
-      turn = state.current_game_turn + (isTurnStart(slot) ? 1 : 0);
-      await client.query(
-        `UPDATE public.anathas_game_state
-         SET current_game_turn = $1, game_id = $2,
-             last_turn_start_key = CASE WHEN $3 THEN $4 ELSE last_turn_start_key END,
-             updated_at = now()
-         WHERE singleton = true`,
-        [turn, gameId, isTurnStart(slot), isTurnStart(slot) ? slot.key : null],
-      );
-    }
-  } else {
-    turn = Number(storedTurn);
-    // Une relance d'une capture partielle réutilise son tour, sans incrémenter deux fois.
+  // La source de vérité du cycle est désormais le plus grand seniority_cycles
+  // renvoyé par Anathas pour cette capture, et non un compteur incrémenté selon
+  // les horaires Cron. Cela absorbe les créneaux vides, manqués ou décalés.
+  const maxApiSeniority = getMaxAnathasSeniorityTurn(
+    apiCountries.map((entry) => entry.normalized?.seniorityCycles),
+  );
+
+  if (publishToDashboard && maxApiSeniority === null) {
+    throw new Error(
+      "Capture déclarée complète mais aucun seniority_cycles entier valide n'a été reçu d'Anathas ; le cycle global n'a pas été modifié.",
+    );
+  }
+
+  // Une capture partielle peut recevoir un game_turn provisoire pour son suivi,
+  // mais elle ne modifie jamais le cycle global. Lors de sa finalisation, le max
+  // Anathas sera recalculé et remplacera cette valeur si nécessaire.
+  const fallbackTurn = storedTurn ?? Number(state.current_game_turn);
+  const turn = maxApiSeniority ?? fallbackTurn;
+  if (!Number.isSafeInteger(Number(turn)) || Number(turn) < 0) {
+    throw new Error("Impossible de déterminer un game_turn valide pour cette capture.");
+  }
+
+  if (publishToDashboard) {
     await client.query(
       `UPDATE public.anathas_game_state
-       SET current_game_turn = GREATEST(current_game_turn, $1), game_id = $2, updated_at = now()
+       SET current_game_turn = $1,
+           game_id = $2,
+           initialized = true,
+           initialized_from = 'MAX(Anathas.seniority_cycles) (réévalué à chaque capture complète)',
+           last_turn_start_key = CASE WHEN $3 THEN $4 ELSE last_turn_start_key END,
+           updated_at = now()
        WHERE singleton = true`,
-      [turn, gameId],
+      [turn, gameId, isTurnStart(slot), isTurnStart(slot) ? slot.key : null],
     );
   }
 
