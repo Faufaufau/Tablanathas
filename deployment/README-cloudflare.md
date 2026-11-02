@@ -18,7 +18,7 @@ Documentation Cloudflare :
 - Un compte Cloudflare et un Worker.
 - Une instance PostgreSQL accessible depuis Cloudflare, avec un hôte joignable publiquement et TLS correctement configuré. Une base sur `localhost` ou sur un PC éteint ne sera pas accessible en production.
 - Node.js **22.12 ou supérieur** recommandé, npm et Git.
-- Un compte **Workers Paid recommandé/nécessaire pour ce profil d'application** : le calcul Argon2id conserve les paramètres de sécurité des mots de passe existants (64 MiB, 3 itérations). Le plan Free limite le CPU à 10 ms par invocation ; le plan Paid autorise 30 secondes par défaut. Le Worker configure 30 secondes. Vérifie également le comportement mémoire pendant les tests de connexion.
+- Le projet Neon secondaire `tablanathas-password-compute` avec Neon Functions Node.js 24 pour les opérations Argon2id. Le plan Workers Free est pris en charge par la collecte Anathas progressive ; les limites de 10 ms CPU et 50 sous-requêtes externes par invocation restent à respecter.
 
 ## 1. Installer les dépendances
 
@@ -34,25 +34,14 @@ Le script de déploiement vérifie le backend TypeScript, puis compile le fronte
 
 ## 2. Préparer PostgreSQL
 
-### Base PostgreSQL neuve
-
-Initialise une base vide avec le bootstrap PostgreSQL :
-
-```bash
-npm --prefix backend run db:bootstrap
-```
-
-`backend/sql/production-bootstrap.sql` est un **bootstrap PostgreSQL** compatible avec Workers via Hyperdrive. **Ne l'exécute pas avec `wrangler d1 execute` et ne l'utilise pas sur D1.**
-
 ### Base PostgreSQL existante
 
-Ne relance pas le bootstrap sur une base contenant des données. Exécute une seule fois, depuis `psql` ou pgAdmin, le script :
+Ne relance pas le bootstrap sur une base contenant des données. Sur la branche de production `main`, exécute une seule fois depuis le SQL Editor Neon, `psql` ou pgAdmin :
 
-```text
-deployment/postgresql-hyperdrive-compatibility.sql
-```
+1. `deployment/postgresql-hyperdrive-compatibility.sql` si le verrou advisory du trigger n'a pas encore été remplacé.
+2. `deployment/anathas-snapshot-batching-migration.sql` pour ajouter la file persistante de collecte et son bail anti-concurrence.
 
-Il remplace le verrou advisory du trigger de limitation des scénarios par un verrou de ligne, compatible avec le pooling transactionnel Hyperdrive. Les chemins applicatifs et le bootstrap neuf utilisent également des verrous de ligne ou une réservation atomique de capture.
+Ces scripts sont additifs. Ils ne suppriment ni ne réinitialisent les captures historiques. La nouvelle version peut reprendre les anciennes captures partielles à partir des `raw_ranking` et `raw_details` encore présents dans `anathas_country_snapshots`.
 
 ## 3. Créer la configuration Hyperdrive
 
@@ -137,14 +126,24 @@ Le module Argon2 natif a été remplacé par `hash-wasm` (WASM) afin de fonction
 
 ## 8. Captures Anathas (Cron)
 
-Le Worker reçoit un Cron toutes les cinq minutes (`*/5 * * * *`). Il appelle `schedulerTick()`, qui ne déclenche une capture qu'aux créneaux du service dans `Europe/Paris` (00:00, 05:05, 18:00 et 20:05). Le calcul horaire continue de gérer le passage été/hiver.
+Le Worker reçoit un Cron chaque minute (`* * * * *`). Il appelle `schedulerTick()`, qui ne démarre ou ne reprend une capture qu'aux créneaux du service dans `Europe/Paris` (00:00, 05:05, 18:00 et 20:05). Le calcul horaire continue de gérer le passage été/hiver.
 
-Le Worker n'utilise pas de `setInterval` pour les captures : le déclenchement est fait par `scheduled()`. La réservation du créneau utilise la contrainte unique `schedule_key` et un `INSERT ... ON CONFLICT` atomique, afin d'éviter deux captures concurrentes sans advisory lock.
+Cloudflare Workers Free autorise 50 sous-requêtes externes par invocation (les redirections comptent également). Une capture ne tente donc jamais de charger toutes les fiches pays dans une seule invocation : le classement est conservé dans `anathas_snapshot_country_queue`, puis chaque invocation traite au plus 40 fiches (concurrence 4), en gardant une marge de 10 sous-requêtes. Le nombre de lots est calculé à partir du nombre réel de pays, sans plafond fixe : 116 pays donnent 3 lots, 121 pays donnent 4 lots (40 + 40 + 40 + 1), 161 pays en donnent 5, etc. Chaque déclenchement Cron traite un seul lot ; les lots suivants reprennent automatiquement au déclenchement de la minute suivante. Les succès sont conservés, les échecs sont retentés individuellement jusqu’à 3 fois, et une capture n’est publiée au dashboard que lorsque toutes les fiches attendues sont valides.
+
+La table de file conserve le classement, les réponses brutes, les tentatives et les prochaines dates de reprise. Une fiche réussie n'est pas redemandée lors d'une reprise ; seules les fiches échouées sont retentées. Une capture ne devient `completed` et ne met à jour le dashboard qu'une fois toutes les fiches détaillées validées. Les anciennes captures partielles sont reprises à partir de `anathas_country_snapshots` lorsque leurs données brutes sont disponibles.
+
+Sur une base existante, appliquer une seule fois `deployment/anathas-snapshot-batching-migration.sql` avant de déployer cette version. Le script ajoute le bail de traitement et la table de file sans supprimer de capture historique. Le bootstrap des bases neuves crée également ces objets.
+
+La première invocation après migration peut reprendre une capture partielle antérieure : elle initialise la file depuis les lignes déjà présentes dans `anathas_country_snapshots` et ne redemande que les fiches dont `raw_details` est absent. Pour suivre la progression, consulter `anathas_snapshot_runs` et joindre `anathas_snapshot_country_queue` par `snapshot_id`.
+
+Avant le déploiement, le calcul du nombre de lots peut être vérifié avec `npm --prefix backend run test:anathas-batching`. Les cas testés incluent 116 pays → 3 lots, 121 → 4 lots et 161 → 5 lots.
+
+Le Worker n'utilise pas de `setInterval` pour les captures : le déclenchement est fait par `scheduled()`. La réservation du créneau utilise la contrainte unique `schedule_key` et un bail `worker_lease_until` attribué atomiquement, afin d'éviter deux captures concurrentes sans advisory lock.
 
 ## 9. Limites et points d'attention
 
 - Hyperdrive utilise un pooling transactionnel ; les advisory locks PostgreSQL ne sont pas pris en charge. Le code Worker n'en utilise plus. Sur une base existante, applique le script de compatibilité de l'étape 2 avant de basculer le Worker.
 - Le Worker utilise `AsyncLocalStorage` (`nodejs_als`) pour isoler un pool `pg` par requête HTTP et par déclenchement Cron, puis ferme ce pool à la fin de l'exécution. Il est limité à 5 connexions simultanées ; Hyperdrive mutualise les connexions vers PostgreSQL.
 - Le binding Cloudflare `LOGIN_RATE_LIMITER` complète le limiteur Express. Les limites Cloudflare simples sont approximatives et localisées par région ; elles ne remplacent pas un contrôle global strict de type Durable Object/WAF.
-- Le hash Argon2id utilise 64 MiB et 3 itérations afin de rester compatible avec les mots de passe existants. Le plan Free (10 ms CPU) ne convient pas à ce calcul ; teste les connexions sur ton plan et surveille les limites CPU/mémoire.
+- Le calcul Argon2id (64 MiB, 3 itérations) est déporté vers Neon Functions Node.js 24 ; les empreintes existantes restent compatibles. Le Worker Cloudflare Free conserve néanmoins une limite de 10 ms CPU par invocation et 50 sous-requêtes externes. Le client Anathas est donc limité à 40 fiches détaillées par invocation, avec reprise persistante au tick Cron suivant.
 - `backend/sql/production-bootstrap.sql` est destiné exclusivement à une base PostgreSQL neuve. Pour une base existante, appliquer uniquement les scripts de migration/compatibilité requis. Aucun schéma D1 n'est livré pour cette version.

@@ -41,8 +41,15 @@ async function requestAnathasResponse(path: string): Promise<AnathasApiResponse>
     });
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
+      console.warn("[Anathas API] Délai d'attente dépassé pour une requête de données.");
       throw new AnathasApiError("L’API Anathas n’a pas répondu dans le délai imparti.", 504);
     }
+    const diagnostic = error instanceof Error
+      ? `${error.name}: ${error.message.slice(0, 240)}`
+      : "Erreur réseau inconnue";
+    // Aucun en-tête ni secret n'est journalisé ; ce diagnostic aide à distinguer
+    // une limite d'exécution Cloudflare d'une panne réseau réelle.
+    console.error(`[Anathas API] Échec réseau : ${diagnostic}`);
     throw new AnathasApiError("Impossible de joindre l’API Anathas depuis le backend.", 502);
   }
 

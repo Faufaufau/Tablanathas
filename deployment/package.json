@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build && wrangler dev --config wrangler.jsonc",
-    "build": "npm --prefix ../backend run check && npm --prefix ../frontend run build",
+    "build": "npm --prefix ../backend run check && npm --prefix ../backend run test:anathas-batching && npm --prefix ../frontend run build",
     "deploy": "npm run build && wrangler deploy --config wrangler.jsonc",
     "dry-run": "npm run build && wrangler deploy --dry-run --config wrangler.jsonc",
     "types": "wrangler types --config wrangler.jsonc"

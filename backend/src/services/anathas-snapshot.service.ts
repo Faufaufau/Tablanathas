@@ -2,6 +2,11 @@ import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 import { config } from "../config.js";
 import {
+  ANATHAS_DETAIL_BATCH_SIZE,
+  ANATHAS_DETAIL_CONCURRENCY,
+  getAnathasDetailBatchCount,
+} from "./anathas-batch.js";
+import {
   extractCountryId,
   extractCountryRecords,
   getCountryDetailsResponse,
@@ -34,9 +39,13 @@ const TIME_SLOTS: Array<{ time: string; phase: ScheduleSlot["phase"] }> = [
   { time: "18:00", phase: "end" },
   { time: "20:05", phase: "start" },
 ];
-const RETRY_DELAY_MS = 5 * 60 * 1000;
+const RUN_RETRY_DELAY_MS = 5 * 60 * 1000;
+const DETAIL_RETRY_DELAY_MS = 60 * 1000;
 const MAX_DETAIL_ATTEMPTS = 3;
-const DETAIL_CONCURRENCY = 4;
+// Le lot est volontairement borné à 40 requêtes externes maximum par invocation.
+// La file persistante et le Cron chaque minute déclenchent autant de lots que nécessaire.
+// Si une invocation est interrompue brutalement, une autre peut reprendre après ce bail.
+const SNAPSHOT_LEASE_MS = 4 * 60 * 1000;
 
 function zonedParts(date: Date, timeZone: string): Record<string, string> {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -101,82 +110,369 @@ function intOrDefault(value: string | null, fallback = 0): number {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
-async function wait(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+type SnapshotQueueRow = {
+  rank_order: number;
+  country_id: string | null;
+  country_name: string | null;
+  ranking: Record<string, unknown>;
+  status: "pending" | "completed" | "failed";
+  attempt_count: number;
+  details_raw: string | null;
+  error_message: string | null;
+  next_attempt_at: Date | string | null;
+};
+
+type QueueUpdate = {
+  rank_order: number;
+  status: "completed" | "failed";
+  attempt_count: number;
+  details_raw: string | null;
+  error_message: string | null;
+  next_attempt_at: string | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function fetchCountryDetailsWithRetry(countryId: string): Promise<{ payload: unknown; rawBody: string }> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_DETAIL_ATTEMPTS; attempt += 1) {
-    try {
-      return await getCountryDetailsResponse(countryId);
-    } catch (error) {
-      lastError = error;
-      if (attempt < MAX_DETAIL_ATTEMPTS) await wait(attempt * 400);
-    }
+function requiredDetailFields(country: NormalizedAnathasCountry): string[] {
+  const requiredFields: Array<[string, string | null]> = [
+    ["score", country.score],
+    ["seniority_cycles", country.seniorityCycles],
+    ["population", country.population],
+    ["land_size", country.landSize],
+    ["habitable_regions", country.habitableRegions],
+    ["tech_military", country.agricultureTech],
+    ["tech_industrial", country.techIndustrial],
+    ["tech_commercial", country.techCommercial],
+    ["research_points", country.researchPoints],
+    ["education.primary", country.educationPrimaryRatio],
+    ["education.secondary", country.educationSecondaryRatio],
+    ["education.higher", country.educationHigherRatio],
+  ];
+  return requiredFields.filter(([, value]) => value === null).map(([name]) => name);
+}
+
+/**
+ * Initialise la file une seule fois par capture.
+ * Pour une capture partielle créée par l'ancienne version, les 49 fiches déjà
+ * récupérées sont reprises depuis raw_details (jsonb::text conserve la précision
+ * numérique PostgreSQL) et seules les fiches manquantes sont redemandées.
+ */
+async function ensureSnapshotQueue(client: PoolClient, snapshotId: string): Promise<number> {
+  const existingQueue = await client.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM public.anathas_snapshot_country_queue
+     WHERE snapshot_id = $1`,
+    [snapshotId],
+  );
+  if (Number(existingQueue.rows[0]?.count ?? 0) > 0) {
+    return Number(existingQueue.rows[0].count);
   }
-  throw lastError instanceof Error ? lastError : new Error("Échec de récupération de la fiche pays.");
-}
 
-async function captureAllCountries(): Promise<{ countries: CountryCapture[]; failures: CaptureFailure[]; expected: number }> {
+  const seeded = await client.query(
+    `INSERT INTO public.anathas_snapshot_country_queue (
+       snapshot_id, rank_order, country_id, country_name, ranking,
+       status, attempt_count, details_raw, error_message
+     )
+     SELECT
+       $1,
+       (row_number() OVER (ORDER BY rank NULLS LAST, country_name, country_id) - 1)::integer,
+       country_id::text,
+       country_name,
+       COALESCE(raw_ranking, jsonb_build_object('id', country_id::text, 'name', country_name, 'rank', rank)),
+       CASE WHEN raw_details IS NULL THEN 'pending' ELSE 'completed' END,
+       0,
+       raw_details::text,
+       NULL
+     FROM public.anathas_country_snapshots
+     WHERE snapshot_id = $1
+     ON CONFLICT (snapshot_id, rank_order) DO NOTHING`,
+    [snapshotId],
+  );
+  if ((seeded.rowCount ?? 0) > 0) {
+    const seededCount = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM public.anathas_snapshot_country_queue
+       WHERE snapshot_id = $1`,
+      [snapshotId],
+    );
+    const count = Number(seededCount.rows[0]?.count ?? 0);
+    await client.query(
+      `UPDATE public.anathas_snapshot_runs
+       SET expected_country_count = $2,
+           captured_country_count = (
+             SELECT count(*) FROM public.anathas_snapshot_country_queue
+             WHERE snapshot_id = $1 AND status = 'completed'
+           ),
+           updated_at = now()
+       WHERE snapshot_id = $1`,
+      [snapshotId, count],
+    );
+    console.info(`[Anathas snapshots] Reprise de la capture ${snapshotId} : ${count} pays déjà historisés, seules les fiches absentes seront récupérées.`);
+    return count;
+  }
+
+  // Nouvelle capture : on ne demande le classement qu'une seule fois, puis on le conserve.
   const rankingResponse = await getCurrentCountriesResponse();
   const rankingRecords = extractCountryRecords(rankingResponse.payload);
   if (rankingRecords.length === 0) {
     throw new Error("Le classement Anathas n'a renvoyé aucun pays identifiable.");
   }
 
-  const countries: CountryCapture[] = rankingRecords.map((ranking) => ({
-    ranking,
-    countryId: extractCountryId(ranking),
-  }));
-  const failures: CaptureFailure[] = [];
+  const queueItems = rankingRecords.map((ranking, index) => {
+    const countryId = extractCountryId(ranking);
+    const countryName = typeof ranking.name === "string" ? ranking.name : null;
+    return {
+      rank_order: index,
+      country_id: countryId,
+      country_name: countryName,
+      ranking,
+      status: countryId ? "pending" : "failed",
+      attempt_count: countryId ? 0 : MAX_DETAIL_ATTEMPTS,
+      error_message: countryId ? null : "Identifiant Anathas absent ou non reconnu dans le classement.",
+    };
+  });
+
+  await client.query(
+    `INSERT INTO public.anathas_snapshot_country_queue (
+       snapshot_id, rank_order, country_id, country_name, ranking,
+       status, attempt_count, error_message
+     )
+     SELECT $1, item.rank_order, item.country_id, item.country_name, item.ranking,
+            item.status, item.attempt_count, item.error_message
+     FROM jsonb_to_recordset($2::jsonb) AS item(
+       rank_order integer,
+       country_id text,
+       country_name text,
+       ranking jsonb,
+       status text,
+       attempt_count integer,
+       error_message text
+     )
+     ON CONFLICT (snapshot_id, rank_order) DO NOTHING`,
+    [snapshotId, JSON.stringify(queueItems)],
+  );
+  await client.query(
+    `UPDATE public.anathas_snapshot_runs
+     SET expected_country_count = $2, updated_at = now()
+     WHERE snapshot_id = $1`,
+    [snapshotId, rankingRecords.length],
+  );
+  const plannedBatchCount = getAnathasDetailBatchCount(rankingRecords.length);
+  console.info(
+    `[Anathas snapshots] Classement enregistré : ${rankingRecords.length} pays ; ` +
+    `${plannedBatchCount} lot(s) de ${ANATHAS_DETAIL_BATCH_SIZE} fiche(s) maximum seront nécessaires.`,
+  );
+  return rankingRecords.length;
+}
+
+async function processNextDetailBatch(client: PoolClient, snapshotId: string): Promise<void> {
+  const batchResult = await client.query<SnapshotQueueRow>(
+    `SELECT rank_order, country_id, country_name, ranking, status,
+            attempt_count, details_raw, error_message, next_attempt_at
+     FROM public.anathas_snapshot_country_queue
+     WHERE snapshot_id = $1
+       AND (
+         status = 'pending'
+         OR (status = 'failed'
+             AND attempt_count < $2
+             AND (next_attempt_at IS NULL OR next_attempt_at <= now()))
+       )
+     ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, rank_order
+     LIMIT $3`,
+    [snapshotId, MAX_DETAIL_ATTEMPTS, ANATHAS_DETAIL_BATCH_SIZE],
+  );
+  const batch = batchResult.rows;
+  if (batch.length === 0) return;
+
+  console.info(`[Anathas snapshots] Capture ${snapshotId} : traitement du lot de ${batch.length} fiche(s) (plafond ${ANATHAS_DETAIL_BATCH_SIZE}).`);
+  const updates: QueueUpdate[] = new Array(batch.length);
   let nextIndex = 0;
 
-  async function worker() {
+  async function worker(): Promise<void> {
     while (true) {
       const index = nextIndex++;
-      if (index >= countries.length) return;
-      const item = countries[index];
-      const fallbackName = typeof item.ranking.name === "string" ? item.ranking.name : null;
-      if (!item.countryId) {
-        item.error = "Identifiant Anathas absent ou non reconnu dans le classement.";
-        failures.push({ countryId: null, countryName: fallbackName, error: item.error });
+      if (index >= batch.length) return;
+      const item = batch[index];
+      const attempt = item.attempt_count + 1;
+
+      if (!item.country_id || !isRecord(item.ranking)) {
+        updates[index] = {
+          rank_order: item.rank_order,
+          status: "failed",
+          attempt_count: MAX_DETAIL_ATTEMPTS,
+          details_raw: null,
+          error_message: "Identifiant ou classement du pays invalide dans la file de capture.",
+          next_attempt_at: null,
+        };
         continue;
       }
+
       try {
-        const response = await fetchCountryDetailsWithRetry(item.countryId);
+        // Une seule requête par pays et par invocation. Les reprises ont lieu
+        // lors d'une invocation Cron ultérieure, jamais dans la même invocation.
+        const response = await getCountryDetailsResponse(item.country_id);
         const normalized = normalizeAnathasCountry(item.ranking, response.payload, response.rawBody);
-        if (!normalized) throw new Error("La réponse détaillée ne contient pas un objet pays exploitable.");
-        const requiredFields: Array<[string, string | null]> = [
-          ["score", normalized.score],
-          ["seniority_cycles", normalized.seniorityCycles],
-          ["population", normalized.population],
-          ["land_size", normalized.landSize],
-          ["habitable_regions", normalized.habitableRegions],
-          ["tech_military", normalized.agricultureTech],
-          ["tech_industrial", normalized.techIndustrial],
-          ["tech_commercial", normalized.techCommercial],
-          ["research_points", normalized.researchPoints],
-          ["education.primary", normalized.educationPrimaryRatio],
-          ["education.secondary", normalized.educationSecondaryRatio],
-          ["education.higher", normalized.educationHigherRatio],
-        ];
-        const missingFields = requiredFields.filter(([, value]) => value === null).map(([name]) => name);
+        if (!normalized) {
+          throw new Error("La réponse détaillée ne contient pas un objet pays exploitable.");
+        }
+        const missingFields = requiredDetailFields(normalized);
         if (missingFields.length > 0) {
           throw new Error(`Fiche pays incomplète ; champs requis absents : ${missingFields.join(", ")}.`);
         }
-        item.normalized = normalized;
-        item.rawDetails = response.rawBody;
+        updates[index] = {
+          rank_order: item.rank_order,
+          status: "completed",
+          attempt_count: attempt,
+          details_raw: response.rawBody,
+          error_message: null,
+          next_attempt_at: null,
+        };
       } catch (error) {
-        item.error = error instanceof Error ? error.message : "Échec de chargement de la fiche.";
-        item.normalized = normalizeAnathasCountry(item.ranking, null, null) ?? undefined;
-        failures.push({ countryId: item.countryId, countryName: fallbackName, error: item.error });
+        const message = error instanceof Error ? error.message : "Échec de chargement de la fiche.";
+        updates[index] = {
+          rank_order: item.rank_order,
+          status: "failed",
+          attempt_count: attempt,
+          details_raw: null,
+          error_message: message.slice(0, 1000),
+          next_attempt_at: attempt < MAX_DETAIL_ATTEMPTS
+            ? new Date(Date.now() + DETAIL_RETRY_DELAY_MS).toISOString()
+            : null,
+        };
       }
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(DETAIL_CONCURRENCY, countries.length) }, () => worker()));
-  return { countries, failures, expected: rankingRecords.length };
+  await Promise.all(
+    Array.from({ length: Math.min(ANATHAS_DETAIL_CONCURRENCY, batch.length) }, () => worker()),
+  );
+
+  // Une seule écriture SQL pour les résultats de tout le lot.
+  await client.query(
+    `UPDATE public.anathas_snapshot_country_queue AS queue
+     SET status = update_row.status,
+         attempt_count = update_row.attempt_count,
+         details_raw = update_row.details_raw,
+         error_message = update_row.error_message,
+         next_attempt_at = update_row.next_attempt_at,
+         updated_at = now()
+     FROM jsonb_to_recordset($2::jsonb) AS update_row(
+       rank_order integer,
+       status text,
+       attempt_count integer,
+       details_raw text,
+       error_message text,
+       next_attempt_at timestamptz
+     )
+     WHERE queue.snapshot_id = $1
+       AND queue.rank_order = update_row.rank_order`,
+    [snapshotId, JSON.stringify(updates)],
+  );
+}
+
+async function getQueueSummary(client: PoolClient, snapshotId: string): Promise<{
+  total: number;
+  completed: number;
+  pending: number;
+  retryable: number;
+  exhausted: number;
+  nextRetryAt: Date | null;
+}> {
+  const result = await client.query<{
+    total: string;
+    completed: string;
+    pending: string;
+    retryable: string;
+    exhausted: string;
+    next_retry_at: Date | null;
+  }>(
+    `SELECT
+       count(*)::text AS total,
+       count(*) FILTER (WHERE status = 'completed')::text AS completed,
+       count(*) FILTER (WHERE status = 'pending')::text AS pending,
+       count(*) FILTER (WHERE status = 'failed' AND attempt_count < $2)::text AS retryable,
+       count(*) FILTER (WHERE status = 'failed' AND attempt_count >= $2)::text AS exhausted,
+       min(next_attempt_at) FILTER (WHERE status = 'failed' AND attempt_count < $2) AS next_retry_at
+     FROM public.anathas_snapshot_country_queue
+     WHERE snapshot_id = $1`,
+    [snapshotId, MAX_DETAIL_ATTEMPTS],
+  );
+  const row = result.rows[0];
+  return {
+    total: Number(row?.total ?? 0),
+    completed: Number(row?.completed ?? 0),
+    pending: Number(row?.pending ?? 0),
+    retryable: Number(row?.retryable ?? 0),
+    exhausted: Number(row?.exhausted ?? 0),
+    nextRetryAt: row?.next_retry_at ?? null,
+  };
+}
+
+async function buildCaptureFromQueue(client: PoolClient, snapshotId: string): Promise<{
+  countries: CountryCapture[];
+  failures: CaptureFailure[];
+  expected: number;
+}> {
+  const result = await client.query<SnapshotQueueRow>(
+    `SELECT rank_order, country_id, country_name, ranking, status,
+            attempt_count, details_raw, error_message, next_attempt_at
+     FROM public.anathas_snapshot_country_queue
+     WHERE snapshot_id = $1
+     ORDER BY rank_order`,
+    [snapshotId],
+  );
+  const countries: CountryCapture[] = [];
+  const failures: CaptureFailure[] = [];
+
+  for (const item of result.rows) {
+    const ranking = isRecord(item.ranking) ? item.ranking : {};
+    const countryId = item.country_id;
+    let normalized: NormalizedAnathasCountry | null = null;
+    let rawDetails: string | null = null;
+    let error: string | undefined;
+
+    if (item.status === "completed" && item.details_raw) {
+      try {
+        const payload = JSON.parse(item.details_raw) as unknown;
+        normalized = normalizeAnathasCountry(ranking, payload, item.details_raw);
+        if (!normalized) throw new Error("La fiche conservée ne peut plus être normalisée.");
+        rawDetails = item.details_raw;
+      } catch (cause) {
+        error = cause instanceof Error ? cause.message : "La fiche conservée est invalide.";
+        await client.query(
+          `UPDATE public.anathas_snapshot_country_queue
+           SET status = 'failed', attempt_count = $3, details_raw = NULL,
+               error_message = $4, next_attempt_at = NULL, updated_at = now()
+           WHERE snapshot_id = $1 AND rank_order = $2`,
+          [snapshotId, item.rank_order, MAX_DETAIL_ATTEMPTS, error.slice(0, 1000)],
+        );
+      }
+    } else {
+      error = item.error_message ?? "Fiche pays non récupérée après plusieurs tentatives.";
+    }
+
+    if (error) {
+      failures.push({
+        countryId,
+        countryName: item.country_name,
+        error,
+      });
+      normalized = normalizeAnathasCountry(ranking, null, null);
+      rawDetails = null;
+    }
+
+    countries.push({
+      ranking,
+      countryId,
+      normalized: normalized ?? undefined,
+      rawDetails,
+      error,
+    });
+  }
+
+  return { countries, failures, expected: result.rows.length };
 }
 
 async function ensurePlayer(client: PoolClient, country: NormalizedAnathasCountry): Promise<string> {
@@ -515,116 +811,151 @@ export async function runAnathasSnapshot(slot: ScheduleSlot): Promise<void> {
   const client = await pool.connect();
   let runId: string | null = null;
   try {
-    // Réservation atomique du créneau grâce à schedule_key UNIQUE. Hyperdrive
-    // fonctionne en pooling transactionnel et ne prend pas en charge les
-    // advisory locks PostgreSQL ; une ligne unique évite les doubles captures.
+    const previousResult = await client.query<{ status: string }>(
+      `SELECT status FROM public.anathas_snapshot_runs WHERE schedule_key = $1 LIMIT 1`,
+      [slot.key],
+    );
+    const previousStatus = previousResult.rows[0]?.status ?? null;
+
+    // Bail atomique : une seule invocation Cron traite un lot à la fois.
+    // Le bail est libéré en fin de traitement et expire automatiquement si le Worker est interrompu.
     const reservation = await client.query<{ snapshot_id: string }>(
       `INSERT INTO public.anathas_snapshot_runs
-         (schedule_key, scheduled_local_at, scheduled_for, snapshot_phase, status)
-       VALUES ($1, $2, $3, $4, 'running')
+         (schedule_key, scheduled_local_at, scheduled_for, snapshot_phase, status, worker_lease_until)
+       VALUES ($1, $2, $3, $4, 'running', now() + ($5 * interval '1 millisecond'))
        ON CONFLICT (schedule_key) DO UPDATE SET
          status = 'running',
-         attempt_count = public.anathas_snapshot_runs.attempt_count + 1,
-         started_at = now(), completed_at = NULL, error_message = NULL,
-         retry_after = NULL, updated_at = now()
+         attempt_count = public.anathas_snapshot_runs.attempt_count
+           + CASE WHEN public.anathas_snapshot_runs.status IN ('partial', 'failed') THEN 1 ELSE 0 END,
+         started_at = CASE
+           WHEN public.anathas_snapshot_runs.status IN ('partial', 'failed') THEN now()
+           ELSE public.anathas_snapshot_runs.started_at
+         END,
+         completed_at = NULL,
+         error_message = NULL,
+         retry_after = NULL,
+         worker_lease_until = now() + ($5 * interval '1 millisecond'),
+         updated_at = now()
        WHERE public.anathas_snapshot_runs.status <> 'completed'
          AND (public.anathas_snapshot_runs.status <> 'running'
-              OR public.anathas_snapshot_runs.started_at < now() - interval '15 minutes')
+              OR public.anathas_snapshot_runs.worker_lease_until IS NULL
+              OR public.anathas_snapshot_runs.worker_lease_until <= now())
          AND (public.anathas_snapshot_runs.retry_after IS NULL
               OR public.anathas_snapshot_runs.retry_after <= now())
        RETURNING snapshot_id`,
-      [slot.key, slot.localAt, slot.scheduledFor, slot.phase],
+      [slot.key, slot.localAt, slot.scheduledFor, slot.phase, SNAPSHOT_LEASE_MS],
     );
-    // Aucune ligne retournée signifie que le créneau est déjà terminé,
-    // qu'une autre invocation le traite, ou que le délai de reprise n'est pas écoulé.
     if (!reservation.rows[0]) return;
     runId = reservation.rows[0].snapshot_id;
 
-    console.info(`[Anathas snapshots] Capture ${slot.localAt} : récupération du classement et des fiches.`);
-    let capture: Awaited<ReturnType<typeof captureAllCountries>>;
     try {
-      capture = await captureAllCountries();
+      // Une reprise d'une capture partielle ne retélécharge que les fiches en échec.
+      if (previousStatus === "partial") {
+        await client.query(
+          `UPDATE public.anathas_snapshot_country_queue
+           SET status = 'pending', attempt_count = 0, next_attempt_at = NULL,
+               error_message = NULL, updated_at = now()
+           WHERE snapshot_id = $1 AND status = 'failed' AND country_id IS NOT NULL`,
+          [runId],
+        );
+      }
+
+      await ensureSnapshotQueue(client, runId);
+      await processNextDetailBatch(client, runId);
+      const summary = await getQueueSummary(client, runId);
+
+      if (summary.pending > 0 || summary.retryable > 0) {
+        const nextRetry = summary.pending > 0 ? null : summary.nextRetryAt;
+        await client.query(
+          `UPDATE public.anathas_snapshot_runs SET
+             expected_country_count = $2,
+             captured_country_count = $3,
+             details_failed_count = $4,
+             status = 'running',
+             error_message = NULL,
+             retry_after = $5,
+             completed_at = NULL,
+             worker_lease_until = NULL,
+             updated_at = now()
+           WHERE snapshot_id = $1`,
+          [runId, summary.total, summary.completed, summary.total - summary.completed, nextRetry],
+        );
+        console.info(
+          `[Anathas snapshots] Progression ${slot.localAt} : ${summary.completed}/${summary.total} fiches récupérées ; ` +
+          `${summary.pending} en attente ; ${summary.retryable} à retenter ; ` +
+          `${getAnathasDetailBatchCount(summary.total)} lot(s) prévus au total.`,
+        );
+        return;
+      }
+
+      // Toutes les fiches sont traitées (succès ou tentatives épuisées) : finalisation.
+      const capture = await buildCaptureFromQueue(client, runId);
+      const validWithDetails = capture.countries.filter((entry) => entry.normalized && entry.rawDetails);
+      const completed = capture.failures.length === 0 && validWithDetails.length === capture.expected;
+      const allNormalized = capture.countries.flatMap((entry) => entry.normalized ? [entry.normalized] : []);
+
+      await client.query("BEGIN");
+      try {
+        const { gameTurn, gameId } = await assignGameTurn(client, slot, runId, capture.countries, completed);
+        await client.query(`DELETE FROM public.anathas_country_snapshots WHERE snapshot_id = $1`, [runId]);
+        const playerLinks = new Map<string, { playerId: string | null; totalZones: number; habitableZones: number }>();
+        for (const country of allNormalized) {
+          const linked = await insertCountrySnapshot(client, runId, country, completed, gameId);
+          playerLinks.set(country.countryId, linked);
+        }
+        await updateResearchBudgetEstimates(client, runId, gameTurn);
+
+        if (completed) {
+          for (const country of allNormalized) {
+            const linked = playerLinks.get(country.countryId);
+            if (!linked?.playerId) throw new Error(`Liaison joueur manquante pour le pays ${country.countryId}.`);
+            await upsertPlayerTurnState(
+              client, country, linked.playerId, gameId, gameTurn,
+              linked.totalZones, linked.habitableZones, runId,
+            );
+          }
+        }
+
+        await client.query(
+          `UPDATE public.anathas_snapshot_runs SET
+            expected_country_count = $2,
+            captured_country_count = $3,
+            details_failed_count = $4,
+            failures = $5::jsonb,
+            status = $6,
+            error_message = $7,
+            retry_after = CASE WHEN $6 = 'completed' THEN NULL ELSE now() + ($8 * interval '1 millisecond') END,
+            completed_at = now(),
+            worker_lease_until = NULL,
+            updated_at = now()
+           WHERE snapshot_id = $1`,
+          [
+            runId, capture.expected, validWithDetails.length, capture.failures.length,
+            JSON.stringify(capture.failures), completed ? "completed" : "partial",
+            completed ? null : `Capture incomplète : ${capture.failures.length} fiche(s) manquante(s).`, RUN_RETRY_DELAY_MS,
+          ],
+        );
+        await client.query("COMMIT");
+
+        if (completed) {
+          console.info(`[Anathas snapshots] Capture complète : ${validWithDetails.length}/${capture.expected} pays, tour ${gameTurn}.`);
+        } else {
+          console.warn(`[Anathas snapshots] Capture partielle : ${validWithDetails.length}/${capture.expected} fiches détaillées. Les fiches en échec seront seules retentées après le délai de reprise ; le dashboard n'a pas été mis à jour.`);
+        }
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
     } catch (error) {
       await client.query(
         `UPDATE public.anathas_snapshot_runs SET status = 'failed', error_message = $2,
-         retry_after = now() + ($3 * interval '1 millisecond'), completed_at = now(), updated_at = now()
-         WHERE snapshot_id = $1`,
-        [runId, error instanceof Error ? error.message : "Échec de capture inconnu.", RETRY_DELAY_MS],
+         retry_after = now() + ($3 * interval '1 millisecond'),
+         completed_at = now(), worker_lease_until = NULL, updated_at = now()
+         WHERE snapshot_id = $1 AND status <> 'completed'`,
+        [runId, error instanceof Error ? error.message : "Erreur inattendue pendant la capture.", RUN_RETRY_DELAY_MS],
       );
-      console.error(`[Anathas snapshots] Capture échouée (${slot.key}).`, error);
-      return;
+      console.error(`[Anathas snapshots] Erreur pendant le lot de capture ${slot.key}.`, error);
     }
-
-    if (!runId) throw new Error("Identifiant de capture manquant après création du journal.");
-    const snapshotRunId = runId;
-    const validWithDetails = capture.countries.filter((entry) => entry.normalized && entry.rawDetails);
-    const completed = capture.failures.length === 0 && validWithDetails.length === capture.expected;
-    const allNormalized = capture.countries.flatMap((entry) => entry.normalized ? [entry.normalized] : []);
-
-    await client.query("BEGIN");
-    try {
-      const { gameTurn, gameId } = await assignGameTurn(client, slot, snapshotRunId, capture.countries, completed);
-      await client.query(`DELETE FROM public.anathas_country_snapshots WHERE snapshot_id = $1`, [snapshotRunId]);
-      const playerLinks = new Map<string, { playerId: string | null; totalZones: number; habitableZones: number }>();
-      for (const country of allNormalized) {
-        const linked = await insertCountrySnapshot(client, snapshotRunId, country, completed, gameId);
-        playerLinks.set(country.countryId, linked);
-      }
-      await updateResearchBudgetEstimates(client, snapshotRunId, gameTurn);
-
-      if (completed) {
-        for (const country of allNormalized) {
-          const linked = playerLinks.get(country.countryId);
-          if (!linked?.playerId) throw new Error(`Liaison joueur manquante pour le pays ${country.countryId}.`);
-          await upsertPlayerTurnState(
-            client, country, linked.playerId, gameId, gameTurn,
-            linked.totalZones, linked.habitableZones, snapshotRunId,
-          );
-        }
-      }
-
-      await client.query(
-        `UPDATE public.anathas_snapshot_runs SET
-          expected_country_count = $2,
-          captured_country_count = $3,
-          details_failed_count = $4,
-          failures = $5::jsonb,
-          status = $6,
-          error_message = $7,
-          retry_after = CASE WHEN $6 = 'completed' THEN NULL ELSE now() + ($8 * interval '1 millisecond') END,
-          completed_at = now(), updated_at = now()
-         WHERE snapshot_id = $1`,
-        [
-          snapshotRunId, capture.expected, validWithDetails.length, capture.failures.length,
-          JSON.stringify(capture.failures), completed ? "completed" : "partial",
-          completed ? null : `Capture incomplète : ${capture.failures.length} fiche(s) manquante(s).`, RETRY_DELAY_MS,
-        ],
-      );
-      await client.query("COMMIT");
-
-      if (completed) {
-        console.info(`[Anathas snapshots] Capture complète : ${validWithDetails.length}/${capture.expected} pays, tour ${gameTurn}.`);
-      } else {
-        console.warn(`[Anathas snapshots] Capture partielle : ${validWithDetails.length}/${capture.expected} fiches détaillées. Le dashboard n'a pas été mis à jour.`);
-      }
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    }
-  } catch (error) {
-    if (runId) {
-      try {
-        await client.query(
-          `UPDATE public.anathas_snapshot_runs SET status = 'failed', error_message = $2,
-           retry_after = now() + ($3 * interval '1 millisecond'), completed_at = now(), updated_at = now()
-           WHERE snapshot_id = $1 AND status <> 'completed'`,
-          [runId, error instanceof Error ? error.message : "Erreur inattendue pendant la capture.", RETRY_DELAY_MS],
-        );
-      } catch (updateError) {
-        console.error("Impossible de journaliser l'échec de capture Anathas.", updateError);
-      }
-    }
-    console.error(`[Anathas snapshots] Erreur pendant la capture ${slot.key}.`, error);
   } finally {
     client.release();
   }

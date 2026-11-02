@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "check": "tsc --noEmit",
     "db:bootstrap": "tsx scripts/bootstrap-database.ts",
-    "user:create": "tsx scripts/create-user.ts"
+    "user:create": "tsx scripts/create-user.ts",
+    "test:anathas-batching": "tsx scripts/test-anathas-batching.ts"
   },
   "dependencies": {
     "connect-pg-simple": "^10.0.0",

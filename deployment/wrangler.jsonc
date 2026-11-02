@@ -29,7 +29,7 @@
     }
   ],
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": ["* * * * *"]
   },
   "vars": {
     "WEB_ORIGIN": "https://tablanathas.flosnihil.workers.dev",

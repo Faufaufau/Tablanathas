@@ -1137,6 +1137,7 @@ CREATE TABLE IF NOT EXISTS public.anathas_snapshot_runs (
   error_message text,
   attempt_count integer NOT NULL DEFAULT 1 CHECK (attempt_count > 0),
   retry_after timestamptz,
+  worker_lease_until timestamptz,
   started_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -1146,6 +1147,28 @@ CREATE INDEX IF NOT EXISTS idx_anathas_snapshot_runs_turn
   ON public.anathas_snapshot_runs(game_turn, scheduled_for DESC);
 CREATE INDEX IF NOT EXISTS idx_anathas_snapshot_runs_status
   ON public.anathas_snapshot_runs(status, scheduled_for DESC);
+
+CREATE TABLE IF NOT EXISTS public.anathas_snapshot_country_queue (
+  snapshot_id bigint NOT NULL REFERENCES public.anathas_snapshot_runs(snapshot_id) ON DELETE CASCADE,
+  rank_order integer NOT NULL CHECK (rank_order >= 0),
+  country_id text,
+  country_name text,
+  ranking jsonb NOT NULL,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'completed', 'failed')),
+  attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  details_raw text,
+  error_message text,
+  next_attempt_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (snapshot_id, rank_order)
+);
+CREATE INDEX IF NOT EXISTS idx_anathas_snapshot_country_queue_work
+  ON public.anathas_snapshot_country_queue(snapshot_id, status, rank_order);
+CREATE INDEX IF NOT EXISTS idx_anathas_snapshot_country_queue_retry
+  ON public.anathas_snapshot_country_queue(snapshot_id, next_attempt_at)
+  WHERE status = 'failed';
 
 CREATE TABLE IF NOT EXISTS public.anathas_country_snapshots (
   snapshot_id bigint NOT NULL REFERENCES public.anathas_snapshot_runs(snapshot_id) ON DELETE CASCADE,
